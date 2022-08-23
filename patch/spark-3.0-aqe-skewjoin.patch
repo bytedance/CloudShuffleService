@@ -1,0 +1,48 @@
+Index: core/src/main/scala/org/apache/spark/SparkConf.scala
+diff --git a/core/src/main/scala/org/apache/spark/SparkConf.scala b/core/src/main/scala/org/apache/spark/SparkConf.scala
+--- a/core/src/main/scala/org/apache/spark/SparkConf.scala
++++ b/core/src/main/scala/org/apache/spark/SparkConf.scala
+@@ -458,6 +458,11 @@
+    */
+   def getAppId: String = get("spark.app.id")
+ 
++  /**
++   * Return true if cloud shuffle service is enabled.
++   */
++  def isCssEnable: Boolean = get("spark.shuffle.manager", "sort").endsWith("CssShuffleManager")
++
+   /** Does the configuration contain a given parameter? */
+   def contains(key: String): Boolean = {
+     settings.containsKey(key) ||
+
+
+Index: sql/core/src/main/scala/org/apache/spark/sql/execution/adaptive/OptimizeSkewedJoin.scala
+diff --git a/sql/core/src/main/scala/org/apache/spark/sql/execution/adaptive/OptimizeSkewedJoin.scala b/sql/core/src/main/scala/org/apache/spark/sql/execution/adaptive/OptimizeSkewedJoin.scala
+--- a/sql/core/src/main/scala/org/apache/spark/sql/execution/adaptive/OptimizeSkewedJoin.scala
++++ b/sql/core/src/main/scala/org/apache/spark/sql/execution/adaptive/OptimizeSkewedJoin.scala
+@@ -21,6 +21,7 @@
+ 
+ import org.apache.commons.io.FileUtils
+ 
++import org.apache.spark.sql.SparkSession
+ import org.apache.spark.{MapOutputStatistics, MapOutputTrackerMaster, SparkEnv}
+ import org.apache.spark.sql.catalyst.plans._
+ import org.apache.spark.sql.catalyst.rules.Rule
+@@ -120,7 +121,15 @@
+         } else {
+           mapStartIndices(i + 1)
+         }
+-        PartialReducerPartitionSpec(reducerId, startMapIndex, endMapIndex)
++        if (SparkSession.getActiveSession.map(_.sparkContext).get.conf.isCssEnable) {
++          // With CSS as Shuffle Service
++          // PartialReducerPartitionSpec is not carrying startMapIndex and endMapIndex,
++          // Because push-based shuffle normally mixed up all MapTask data for IO aggregation.
++          // PartialReducerPartitionSpec will carry split task index and total split task num.
++          PartialReducerPartitionSpec(reducerId, mapStartIndices.length, i)
++        } else {
++          PartialReducerPartitionSpec(reducerId, startMapIndex, endMapIndex)
++        }
+       })
+     } else {
+       None
+
